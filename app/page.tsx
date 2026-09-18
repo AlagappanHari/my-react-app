@@ -8,7 +8,7 @@ import {
   Droplets,
   LocateFixed,
   MapPin,
-  Mask,
+  ShieldCheck,
   RefreshCw,
   ThermometerSun,
   TrendingDown,
@@ -233,7 +233,7 @@ export default function Home() {
         </article>
 
         <article className="adviceCard">
-          <div className="adviceIcon mask"><Mask size={21} /></div>
+          <div className="adviceIcon mask"><ShieldCheck size={21} /></div>
           <div>
             <span className="muted">Mask guidance</span>
             <h2>Do I need a mask?</h2>
