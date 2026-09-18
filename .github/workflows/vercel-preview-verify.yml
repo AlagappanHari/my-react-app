@@ -1,0 +1,46 @@
+name: Hazemate Vercel Preview Verification
+
+on:
+  repository_dispatch:
+    types:
+      - vercel.deployment.success
+      - vercel.deployment.ready
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify Vercel deployment
+    runs-on: ubuntu-latest
+    if: ${{ github.event.client_payload.url != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - run: npm install
+
+      - run: npx playwright install --with-deps chromium webkit
+
+      - name: Run Playwright against Vercel deployment
+        run: npm run test:e2e:ci
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ github.event.client_payload.url }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+      - name: Upload deployment Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vercel-playwright-report-${{ github.run_id }}
+          path: playwright-report/
+          retention-days: 14
+
+      - name: Report verification status to Vercel
+        if: always()
+        uses: vercel/repository-dispatch/actions/status@v1
+        with:
+          name: "Hazemate Playwright"
