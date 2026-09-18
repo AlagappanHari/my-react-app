@@ -27,7 +27,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
       - run: npm install
       - run: npm run typecheck
       - run: npm run build
@@ -44,7 +43,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: npm
       - run: npm install
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e:ci
