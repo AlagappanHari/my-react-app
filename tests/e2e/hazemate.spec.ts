@@ -16,10 +16,10 @@ test.describe("Hazemate PWA", () => {
     await expect(page.getByRole("heading", { name: /A healthier you/i })).toBeVisible({
       timeout: 5_000
     });
-    await page.getByRole("button", { name: /Next/i }).click();
+    await page.getByRole("button", { name: "Next →", exact: true }).click();
 
     await expect(page.getByRole("heading", { name: /Know/i })).toBeVisible();
-    await page.getByRole("button", { name: /Next/i }).click();
+    await page.getByRole("button", { name: "Next →", exact: true }).click();
 
     await expect(page.getByRole("heading", { name: "Use your location" })).toBeVisible();
     await expect(page.getByRole("button", { name: /Allow Location Access/i })).toBeVisible();
