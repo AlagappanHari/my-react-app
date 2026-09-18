@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { captureHazemateEvent } from "@/lib/analytics";
 import {
   Activity,
   Bell,
@@ -83,7 +84,15 @@ export default function Home() {
       const next = await res.json();
       setPreviousPm(data?.haze?.pm25_1h ?? null);
       setData(next);
+      captureHazemateEvent("environment_loaded", {
+        region: next?.region ?? null,
+        psi24h: next?.haze?.psi24h ?? null,
+        pm25_1h: next?.haze?.pm25_1h ?? null
+      });
     } catch (e) {
+      captureHazemateEvent("environment_load_failed", {
+        message: e instanceof Error ? e.message : "unknown"
+      });
       setError(e instanceof Error ? e.message : "Unable to load air quality.");
     } finally {
       setLoading(false);
@@ -96,11 +105,14 @@ export default function Home() {
       return;
     }
     setLocating(true);
+    captureHazemateEvent("location_permission_requested");
     navigator.geolocation.getCurrentPosition(
       (position) => {
+        captureHazemateEvent("location_permission_granted");
         load(position.coords.latitude, position.coords.longitude).finally(() => setLocating(false));
       },
       () => {
+        captureHazemateEvent("location_permission_denied");
         setError("Location permission was not granted. Choose a Singapore region instead.");
         setLocating(false);
       },
@@ -109,6 +121,7 @@ export default function Home() {
   }
 
   function chooseRegion(value: string) {
+    captureHazemateEvent("region_selected", { region: value });
     setRegionChoice(value);
     const [lat, lon] = REGION_COORDS[value];
     load(lat, lon);
@@ -123,6 +136,7 @@ export default function Home() {
 
     const installHandler = (event: Event) => {
       event.preventDefault();
+      captureHazemateEvent("pwa_install_prompt_available");
       setInstallPrompt(event);
     };
     window.addEventListener("beforeinstallprompt", installHandler);
@@ -139,7 +153,10 @@ export default function Home() {
 
   async function install() {
     if (!installPrompt) return;
+    captureHazemateEvent("pwa_install_clicked");
     await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    captureHazemateEvent("pwa_install_result", { outcome: choice?.outcome ?? "unknown" });
     setInstallPrompt(null);
   }
 
