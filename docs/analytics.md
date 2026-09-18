@@ -31,3 +31,16 @@ The client initializes in `instrumentation-client.ts`, which is the recommended 
 - Track only coarse NEA region names.
 - Session recording is disabled by default.
 - Person profiles are created only for identified users.
+
+
+## Deployment model
+
+Hazemate uses Vercel's native Git integration for deployments.
+
+- Pull requests / feature branches → Vercel Preview deployments
+- Production branch → Vercel Production deployment
+- GitHub Actions → typecheck, build and Playwright only
+
+No `VERCEL_TOKEN`, `VERCEL_ORG_ID` or `VERCEL_PROJECT_ID` secrets are required for deployment.
+
+If Deployment Protection is enabled, `VERCEL_AUTOMATION_BYPASS_SECRET` may be added to GitHub Actions so post-deployment Playwright can access protected preview URLs.
