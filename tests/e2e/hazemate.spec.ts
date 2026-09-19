@@ -17,7 +17,8 @@ test.describe("Hazemate responsive PWA", () => {
       ? page.locator(".headerRegionSelect")
       : page.locator(".mobileLocationControls .regionSelect");
     await regionSelect.selectOption("east");
-    await expect(page.getByText("East Singapore").first()).toBeVisible({ timeout: 15_000 });
+    await expect(regionSelect).toHaveValue("east");
+    await expect(page.locator(".locationChip strong")).toContainText("East", { timeout: 15_000 });
   });
 
   test("live environmental data and primary navigation work", async ({ page }) => {
