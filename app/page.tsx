@@ -10,7 +10,6 @@ import {
   Droplets,
   Footprints,
   Home as HomeIcon,
-  LocateFixed,
   MapPin,
   Menu,
   RefreshCw,
@@ -66,10 +65,6 @@ type HistoryPoint = {
 };
 
 type Screen =
-  | "splash"
-  | "onboarding1"
-  | "onboarding2"
-  | "location"
   | "home"
   | "map"
   | "activity"
@@ -249,9 +244,7 @@ export default function Home() {
         captureHazemateEvent("location_permission_granted");
         load(position.coords.latitude, position.coords.longitude).finally(() => {
           setLocating(false);
-          localStorage.setItem("hazemate-onboarded", "1");
           localStorage.setItem("hazemate-location-mode", "gps");
-          setScreen("home");
         });
       },
       () => {
@@ -265,10 +258,8 @@ export default function Home() {
 
   function chooseRegion(value: RegionName) {
     captureHazemateEvent("region_selected", { region: value });
-    localStorage.setItem("hazemate-onboarded", "1");
     localStorage.setItem("hazemate-location-mode", "manual");
     void loadRegion(value);
-    setScreen("home");
   }
 
   async function requestNotifications() {
@@ -310,11 +301,6 @@ export default function Home() {
 
     void load(...REGION_COORDS[storedRegion]);
 
-    if (!localStorage.getItem("hazemate-onboarded")) {
-      setScreen("splash");
-      const timer = window.setTimeout(() => setScreen("onboarding1"), 900);
-      return () => window.clearTimeout(timer);
-    }
   }, [load]);
 
   useEffect(() => {
@@ -373,24 +359,54 @@ export default function Home() {
     { title: "Outdoor with kids", icon: Sparkles, ...activityStatus(displayPsi, audience === "General" ? "Children" : audience, "moderate") }
   ], [displayPsi, audience]);
 
-  const currentRegionReading = data?.regions.find((r) => r.name === regionChoice);
-
   function Shell({ children, title, back = false }: { children: React.ReactNode; title?: string; back?: boolean }) {
     return (
-      <div className="phoneShell">
-        <div className="statusBar">
-          <span>{new Date().toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" })}</span>
-          <span>Hazemate</span>
-        </div>
+      <div className="appShell">
+        <header className="appHeader">
+          <button className="brandButton" onClick={() => setScreen("home")} aria-label="Hazemate home">
+            <img src="/mascot.svg" alt="" aria-hidden="true" />
+            <span className="wordmark">Haze<span>mate</span></span>
+          </button>
+
+          <nav className="desktopNav" aria-label="Primary">
+            {tabs.map((item) => {
+              const Icon = item.icon;
+              const selected = screen === item.id || (item.id === "alerts" && ["alerts","trends","indoor"].includes(screen));
+              return (
+                <button key={item.id} className={selected ? "desktopNavItem active" : "desktopNavItem"} onClick={() => setScreen(item.id)}>
+                  <Icon size={17} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="headerControls">
+            <select className="headerRegionSelect" value={regionChoice} onChange={(e) => chooseRegion(e.target.value as RegionName)} aria-label="Choose region">
+              {Object.keys(REGION_COORDS).map((r) => <option key={r} value={r}>{REGION_LABELS[r as RegionName]}</option>)}
+            </select>
+            <button className="headerIconButton" onClick={useLocation} disabled={locating} aria-label="Use my location">
+              <MapPin size={18} />
+            </button>
+            <button className="headerIconButton" onClick={() => void loadRegion(regionChoice)} aria-label="Refresh data">
+              <RefreshCw size={18} />
+            </button>
+          </div>
+        </header>
+
         {title ? (
-          <div className="screenHeader">
+          <div className="pageHeader">
             {back ? <button className="backBtn" onClick={() => setScreen("home")} aria-label="Back"><ChevronLeft size={20} /></button> : <span />}
-            <strong>{title}</strong>
-            <button className="iconBtn" onClick={() => void loadRegion(regionChoice)} aria-label="Refresh data"><RefreshCw size={18} /></button>
+            <div>
+              <strong>{title}</strong>
+              <small>{REGION_LABELS[regionChoice]} Region · updated {formatTime(data?.haze.updatedAt)}</small>
+            </div>
+            <span />
           </div>
         ) : null}
-        <div className="screenBody">{children}</div>
-        {["home","map","activity","mask","trends","indoor","alerts"].includes(screen) ? <BottomNav /> : null}
+
+        <main className="appContent">{children}</main>
+        <BottomNav />
       </div>
     );
   }
@@ -412,105 +428,26 @@ export default function Home() {
     );
   }
 
-  if (screen === "splash") {
-    return (
-      <Shell>
-        <section className="splashScreen">
-          <div className="skyCloud cloudOne" />
-          <div className="skyCloud cloudTwo" />
-          <div className="splashBrand"><h1>Hazemate</h1><p>Your mate for<br />clearer outdoor decisions</p></div>
-          <div className="sgSkyline">Singapore</div>
-          <img src="/mascot.svg" alt="Hazemate mascot" className="splashMascot" />
-          <span className="splashTagline">Cleaner Air<br />Brighter Days</span>
-        </section>
-      </Shell>
-    );
-  }
-
-  if (screen === "onboarding1") {
-    return (
-      <Shell>
-        <section className="onboardingScreen">
-          <div>
-            <h1>A healthier you,<br />for brighter<br />tomorrows.</h1>
-            <p>Real-time air quality, personalised advice, and healthier choices — all in one app.</p>
-          </div>
-          <img src="/mascot.svg" alt="Hazemate mascot" className="onboardMascot" />
-          <div className="pagerDots"><span className="active" /><span /><span /></div>
-          <button className="primaryBtn" onClick={() => setScreen("onboarding2")}>Next →</button>
-          <button className="textBtn" onClick={() => setScreen("location")}>Skip</button>
-        </section>
-      </Shell>
-    );
-  }
-
-  if (screen === "onboarding2") {
-    const benefits = [
-      ["Live air quality","at your location"],
-      ["Personalised advice","for your activities"],
-      ["Mask guidance","when you need it"],
-      ["Indoor air insights","with your own indoor reading"]
-    ];
-    return (
-      <Shell>
-        <section className="onboardingScreen compact">
-          <div>
-            <h1>Know.<br />Plan.<br />Breathe.</h1>
-            <div className="benefitList">
-              {benefits.map(([title,sub], i) => (
-                <div className="benefitRow" key={title}>
-                  <div className={`benefitIcon benefit${i}`}>{i === 0 ? <MapPin size={20}/> : i === 1 ? <Sparkles size={20}/> : i === 2 ? <ShieldCheck size={20}/> : <HomeIcon size={20}/>}</div>
-                  <div><strong>{title}</strong><span>{sub}</span></div>
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="pagerDots"><span /><span className="active" /><span /></div>
-          <button className="primaryBtn" onClick={() => setScreen("location")}>Next →</button>
-          <button className="textBtn" onClick={() => setScreen("location")}>Skip</button>
-        </section>
-      </Shell>
-    );
-  }
-
-  if (screen === "location") {
-    return (
-      <Shell>
-        <section className="locationScreen">
-          <div className="locationHero">
-            <img src="/mascot.svg" alt="Hazemate mascot" />
-            <div className="pinOrb"><MapPin size={34}/></div>
-          </div>
-          <h1>Use your location</h1>
-          <p>Hazemate uses your location only to choose the most relevant NEA region and nearby weather station.</p>
-          <div className="locationBenefits">
-            <span><LocateFixed size={17}/> Show local air-quality context</span>
-            <span><ShieldCheck size={17}/> Personalise recommendations</span>
-            <span><Sparkles size={17}/> Help plan outdoor activities</span>
-          </div>
-          {error ? <div className="miniAlert">{error}</div> : null}
-          <button className="primaryBtn" onClick={useLocation} disabled={locating}>{locating ? "Finding you…" : "Allow Location Access"}</button>
-          <button className="textBtn" onClick={() => setScreen("home")}>Continue with current region</button>
-          <select className="regionSelect" value={regionChoice} onChange={(e) => chooseRegion(e.target.value as RegionName)} aria-label="Choose region">
-            {Object.keys(REGION_COORDS).map((r) => <option key={r} value={r}>{REGION_LABELS[r as RegionName]} Singapore</option>)}
-          </select>
-        </section>
-      </Shell>
-    );
-  }
-
   if (screen === "home") {
     return (
       <Shell>
         <section className={unhealthy ? "homeScreen unhealthyHome" : "homeScreen"}>
           <header className="homeTop">
-            <div>
-              <div className="wordmark">Haze<span>mate</span></div>
-              <p>Singapore<br/><strong>{REGION_LABELS[regionChoice]} Region</strong></p>
+            <div className="homeIntro">
+              <p className="eyebrow">Singapore air quality</p>
+              <h1>Good {new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}</h1>
+              <p>Live outdoor conditions and practical guidance for your day.</p>
             </div>
             <div className="homeMascotWrap"><img src="/mascot.svg" alt="Hazemate mascot" /></div>
             <button className="bellButton" onClick={() => setScreen("alerts")} aria-label="Open alerts"><Bell size={20} /></button>
           </header>
+
+          <div className="mobileLocationControls">
+            <select className="regionSelect" value={regionChoice} onChange={(e) => chooseRegion(e.target.value as RegionName)} aria-label="Choose region">
+              {Object.keys(REGION_COORDS).map((r) => <option key={r} value={r}>{REGION_LABELS[r as RegionName]} Singapore</option>)}
+            </select>
+            <button className="locationAction" onClick={useLocation} disabled={locating}><MapPin size={17}/>{locating ? "Locating…" : "Use my location"}</button>
+          </div>
 
           <div className="locationChip">
             <MapPin size={18}/>
