@@ -70,7 +70,12 @@ test.describe("Hazemate responsive PWA", () => {
     });
     const page = await context.newPage();
     await page.goto("/");
-    await page.getByRole("button", { name: "Use my location" }).first().click();
+    const viewportWidth = page.viewportSize()?.width ?? 390;
+    if (viewportWidth >= 700) {
+      await page.locator(".headerControls").getByRole("button", { name: "Use my location" }).click();
+    } else {
+      await page.locator(".mobileLocationControls").getByRole("button", { name: "Use my location" }).click();
+    }
     await expect(page.getByText("PSI (24-hr)")).toBeVisible({ timeout: 15_000 });
     await expect(page.locator("body")).not.toContainText("1.3521");
     await expect(page.locator("body")).not.toContainText("103.8198");
