@@ -12,7 +12,10 @@ test.describe("Hazemate responsive PWA", () => {
 
   test("region can be changed from the dashboard", async ({ page }) => {
     await page.goto("/");
-    const regionSelect = page.getByLabel("Choose region").first();
+    const viewportWidth = page.viewportSize()?.width ?? 390;
+    const regionSelect = viewportWidth >= 700
+      ? page.locator(".headerRegionSelect")
+      : page.locator(".mobileLocationControls .regionSelect");
     await regionSelect.selectOption("east");
     await expect(page.getByText("East Region").first()).toBeVisible({ timeout: 15_000 });
   });
