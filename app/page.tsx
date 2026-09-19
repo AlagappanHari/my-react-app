@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   Bell,
@@ -13,29 +13,56 @@ import {
   LocateFixed,
   MapPin,
   Menu,
+  RefreshCw,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   ThermometerSun,
   TrendingDown,
-  TrendingUp,
-  Wind
+  TrendingUp
 } from "lucide-react";
 import { captureHazemateEvent } from "@/lib/analytics";
 
+type RegionName = "north" | "south" | "east" | "west" | "central";
+
+type RegionReading = {
+  name: RegionName;
+  psi24h: number | null;
+  pm25_1h: number | null;
+  pm25_24h: number | null;
+};
+
+type WeatherReading = {
+  value: number | null;
+  stationName: string;
+  distanceKm: number;
+  unit: string;
+  timestamp?: string | null;
+};
+
 type EnvData = {
-  region: string;
-  location: { latitude: number; longitude: number };
+  region: RegionName;
   haze: {
     psi24h: number | null;
     pm25_1h: number | null;
     pm25_24h: number | null;
     updatedAt: string | null;
   };
-  temperature: { value: number | null; stationName: string; distanceKm: number; unit: string } | null;
-  humidity: { value: number | null; stationName: string; distanceKm: number; unit: string } | null;
+  regions: RegionReading[];
+  weather: {
+    temperature: WeatherReading | null;
+    humidity: WeatherReading | null;
+  };
   observedAt: string | null;
   source: string;
+};
+
+type HistoryPoint = {
+  region: RegionName;
+  psi24h: number | null;
+  pm25_1h: number | null;
+  pm25_24h: number | null;
+  observed_at: string;
 };
 
 type Screen =
@@ -51,7 +78,10 @@ type Screen =
   | "indoor"
   | "alerts";
 
-const REGION_COORDS: Record<string, [number, number]> = {
+type Audience = "General" | "Children" | "Elderly" | "Sensitive";
+type TrendMetric = "PSI" | "PM2.5";
+
+const REGION_COORDS: Record<RegionName, [number, number]> = {
   north: [1.418, 103.82],
   south: [1.285, 103.833],
   east: [1.35, 103.955],
@@ -59,13 +89,21 @@ const REGION_COORDS: Record<string, [number, number]> = {
   central: [1.3521, 103.8198]
 };
 
-const REGION_PSI = [
-  { name: "North", value: 68, tone: "moderate" },
-  { name: "West", value: 112, tone: "unhealthy" },
-  { name: "Central", value: 42, tone: "good" },
-  { name: "East", value: 78, tone: "moderate" },
-  { name: "South", value: 56, tone: "moderate" }
-];
+const REGION_LABELS: Record<RegionName, string> = {
+  north: "North",
+  south: "South",
+  east: "East",
+  west: "West",
+  central: "Central"
+};
+
+const REGION_POSITIONS: Record<RegionName, string> = {
+  north: "region0",
+  west: "region1",
+  central: "region2",
+  east: "region3",
+  south: "region4"
+};
 
 function psiLabel(psi: number | null) {
   if (psi == null) return ["Unavailable", "neutral"] as const;
@@ -76,35 +114,53 @@ function psiLabel(psi: number | null) {
   return ["Hazardous", "hazardous"] as const;
 }
 
-function guidance(psi: number | null, pm25: number | null) {
+function guidance(psi: number | null, pm25: number | null, audience: Audience = "General") {
   const p = psi ?? 0;
   const pm = pm25 ?? 0;
-  if (p > 300) return "Stay indoors where practical. Avoid strenuous outdoor activity and follow official advisories.";
-  if (p > 200) return "Minimise prolonged outdoor activity, especially for vulnerable groups.";
-  if (p > 100 || pm >= 55) return "Consider reducing strenuous outdoor activities.";
-  if (pm >= 35) return "Keep outdoor sessions shorter and lighter.";
-  return "Great time for outdoor activities!";
+  const sensitive = audience !== "General";
+
+  if (p > 300) return "Avoid strenuous outdoor activity and stay indoors where practical.";
+  if (p > 200) return sensitive
+    ? "Minimise outdoor exposure and avoid strenuous activity."
+    : "Reduce prolonged or strenuous outdoor activity.";
+  if (p > 100 || pm >= 55) return sensitive
+    ? "Keep outdoor activity short and light."
+    : "Consider reducing strenuous outdoor activities.";
+  if (pm >= 35) return "Conditions are elevated. Prefer shorter, lighter outdoor sessions.";
+  return "Outdoor activities are generally suitable. Keep checking conditions.";
 }
 
-function maskGuidance(psi: number | null) {
+function maskGuidance(psi: number | null, audience: Audience = "General") {
   const p = psi ?? 0;
-  if (p > 300) return "Consider a well-fitting N95 if you must remain outdoors for several hours.";
-  if (p > 200) return "Vulnerable users should minimise outdoor exposure; an N95 may help if prolonged exposure cannot be avoided.";
-  return "Not needed right now";
+  if (p > 300) return "If prolonged outdoor exposure is unavoidable, consider a well-fitting N95 and follow official health advice.";
+  if (p > 200 && audience !== "General") return "Minimise outdoor exposure. If you must stay outdoors for a prolonged period, seek guidance on suitable respiratory protection.";
+  return "A mask is generally not needed for short outdoor exposure. Reducing exposure remains the priority.";
 }
 
-function fmtRegion(region?: string) {
-  if (!region) return "Central";
-  return region.charAt(0).toUpperCase() + region.slice(1);
+function activityStatus(psi: number | null, audience: Audience, intensity: "light" | "moderate" | "high") {
+  const p = psi ?? 0;
+  const sensitive = audience !== "General";
+  const limit = sensitive ? 100 : 150;
+
+  if (p > 200) return { label: "Avoid", tone: "unhealthy", subtitle: "Choose an indoor alternative" };
+  if (p > limit || (p > 100 && intensity === "high")) return { label: "Limit", tone: "moderate", subtitle: "Shorten duration and reduce intensity" };
+  if (p > 100 && intensity !== "light") return { label: "Moderate", tone: "moderate", subtitle: "Keep the session light" };
+  return { label: "Good", tone: "good", subtitle: "Generally suitable" };
 }
 
-const activities = [
-  { title: "Walking", subtitle: "Generally safe", status: "Good", icon: Footprints, tone: "good" },
-  { title: "Running", subtitle: "Consider reducing intensity", status: "Moderate", icon: Activity, tone: "moderate" },
-  { title: "Cycling", subtitle: "Generally safe", status: "Good", icon: Bike, tone: "good" },
-  { title: "Outdoor sports", subtitle: "Limit prolonged activities", status: "Moderate", icon: Activity, tone: "moderate" },
-  { title: "Outdoor with kids", subtitle: "Keep activities short", status: "Moderate", icon: Sparkles, tone: "moderate" }
-];
+function formatTime(value?: string | null) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" });
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-SG", { dateStyle: "medium", timeStyle: "short" });
+}
 
 const tabs: { id: Screen; label: string; icon: typeof HomeIcon }[] = [
   { id: "home", label: "Home", icon: HomeIcon },
@@ -117,28 +173,37 @@ const tabs: { id: Screen; label: string; icon: typeof HomeIcon }[] = [
 export default function Home() {
   const [screen, setScreen] = useState<Screen>("home");
   const [data, setData] = useState<EnvData | null>(null);
+  const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [error, setError] = useState("");
-  const [regionChoice, setRegionChoice] = useState("central");
+  const [regionChoice, setRegionChoice] = useState<RegionName>("central");
   const [locating, setLocating] = useState(false);
+  const [audience, setAudience] = useState<Audience>("General");
+  const [mapMetric, setMapMetric] = useState<TrendMetric>("PSI");
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>("PSI");
+  const [period, setPeriod] = useState<"Today" | "7 Days" | "30 Days">("Today");
   const [previousPm, setPreviousPm] = useState<number | null>(null);
-  const [segment, setSegment] = useState("General");
-  const [metric, setMetric] = useState("PSI");
-  const [period, setPeriod] = useState("Today");
+  const [alertPsi, setAlertPsi] = useState(101);
+  const [alertsEnabled, setAlertsEnabled] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("default");
+  const [indoorPm25, setIndoorPm25] = useState<number | "">("");
+  const [indoorSaved, setIndoorSaved] = useState<number | null>(null);
 
-  async function load(lat: number, lon: number) {
+  const load = useCallback(async (lat: number, lon: number) => {
     setLoading(true);
     setError("");
     try {
       const res = await fetch(`/api/environment?lat=${lat}&lon=${lon}`, { cache: "no-store" });
       if (!res.ok) throw new Error("Environmental data is temporarily unavailable.");
-      const next = await res.json();
-      setPreviousPm(data?.haze?.pm25_1h ?? null);
+      const next: EnvData = await res.json();
+      setPreviousPm((current) => current ?? next.haze.pm25_1h ?? null);
       setData(next);
+      setRegionChoice(next.region);
       captureHazemateEvent("environment_loaded", {
-        region: next?.region ?? null,
-        psi24h: next?.haze?.psi24h ?? null,
-        pm25_1h: next?.haze?.pm25_1h ?? null
+        region: next.region,
+        psi24h: next.haze.psi24h,
+        pm25_1h: next.haze.pm25_1h
       });
     } catch (e) {
       captureHazemateEvent("environment_load_failed", {
@@ -148,7 +213,29 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  const loadRegion = useCallback(async (region: RegionName) => {
+    const [lat, lon] = REGION_COORDS[region];
+    setRegionChoice(region);
+    localStorage.setItem("hazemate-region", region);
+    await load(lat, lon);
+  }, [load]);
+
+  const loadHistory = useCallback(async (region: RegionName, selectedPeriod: typeof period) => {
+    setHistoryLoading(true);
+    try {
+      const hours = selectedPeriod === "Today" ? 24 : selectedPeriod === "7 Days" ? 24 * 7 : 24 * 30;
+      const res = await fetch(`/api/environment/history?region=${region}&hours=${hours}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("History unavailable");
+      const json = await res.json();
+      setHistory(Array.isArray(json.readings) ? json.readings : []);
+    } catch {
+      setHistory([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
 
   function useLocation() {
     if (!navigator.geolocation) {
@@ -163,6 +250,7 @@ export default function Home() {
         load(position.coords.latitude, position.coords.longitude).finally(() => {
           setLocating(false);
           localStorage.setItem("hazemate-onboarded", "1");
+          localStorage.setItem("hazemate-location-mode", "gps");
           setScreen("home");
         });
       },
@@ -175,48 +263,130 @@ export default function Home() {
     );
   }
 
-  function chooseRegion(value: string) {
+  function chooseRegion(value: RegionName) {
     captureHazemateEvent("region_selected", { region: value });
-    setRegionChoice(value);
-    const [lat, lon] = REGION_COORDS[value];
-    load(lat, lon);
     localStorage.setItem("hazemate-onboarded", "1");
+    localStorage.setItem("hazemate-location-mode", "manual");
+    void loadRegion(value);
     setScreen("home");
   }
 
+  async function requestNotifications() {
+    if (!("Notification" in window)) {
+      setNotificationPermission("unsupported");
+      return;
+    }
+    const result = await Notification.requestPermission();
+    setNotificationPermission(result);
+    if (result === "granted") {
+      setAlertsEnabled(true);
+      localStorage.setItem("hazemate-alerts-enabled", "1");
+    }
+  }
+
+  function saveIndoorReading() {
+    if (indoorPm25 === "" || indoorPm25 < 0) return;
+    setIndoorSaved(Number(indoorPm25));
+    localStorage.setItem("hazemate-indoor-pm25", String(indoorPm25));
+  }
+
   useEffect(() => {
-    load(...REGION_COORDS.central);
+    const storedRegion = (localStorage.getItem("hazemate-region") as RegionName | null) ?? "central";
+    if (storedRegion in REGION_COORDS) setRegionChoice(storedRegion);
+
+    const storedAlert = Number(localStorage.getItem("hazemate-alert-psi") ?? "101");
+    if (Number.isFinite(storedAlert)) setAlertPsi(storedAlert);
+
+    setAlertsEnabled(localStorage.getItem("hazemate-alerts-enabled") === "1");
+
+    const indoor = Number(localStorage.getItem("hazemate-indoor-pm25"));
+    if (Number.isFinite(indoor) && indoor >= 0) {
+      setIndoorSaved(indoor);
+      setIndoorPm25(indoor);
+    }
+
+    if ("Notification" in window) setNotificationPermission(Notification.permission);
+    else setNotificationPermission("unsupported");
+
+    void load(...REGION_COORDS[storedRegion]);
+
     if (!localStorage.getItem("hazemate-onboarded")) {
       setScreen("splash");
       const timer = window.setTimeout(() => setScreen("onboarding1"), 900);
       return () => window.clearTimeout(timer);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [load]);
 
-  const [label, tone] = psiLabel(data?.haze?.psi24h ?? null);
+  useEffect(() => {
+    if (screen === "trends") void loadHistory(regionChoice, period);
+  }, [screen, regionChoice, period, loadHistory]);
+
+  useEffect(() => {
+    const psi = data?.haze.psi24h;
+    if (!alertsEnabled || psi == null || psi < alertPsi) return;
+    if (notificationPermission !== "granted") return;
+
+    const key = `hazemate-last-alert-${regionChoice}-${alertPsi}`;
+    const last = Number(localStorage.getItem(key) ?? "0");
+    if (Date.now() - last < 60 * 60 * 1000) return;
+
+    new Notification("Hazemate air-quality alert", {
+      body: `${REGION_LABELS[regionChoice]} Region PSI is ${psi}.`
+    });
+    localStorage.setItem(key, String(Date.now()));
+  }, [alertsEnabled, alertPsi, data, notificationPermission, regionChoice]);
+
+  const [label, tone] = psiLabel(data?.haze.psi24h ?? null);
+  const displayPsi = data?.haze.psi24h ?? null;
+  const displayPm = data?.haze.pm25_1h ?? null;
+  const temperature = data?.weather.temperature?.value ?? null;
+  const humidity = data?.weather.humidity?.value ?? null;
+  const unhealthy = (displayPsi ?? 0) > 100;
+
   const pmTrend = useMemo(() => {
-    const current = data?.haze?.pm25_1h;
-    if (current == null || previousPm == null) return "steady";
-    return current > previousPm ? "rising" : current < previousPm ? "falling" : "steady";
-  }, [data, previousPm]);
+    if (displayPm == null || previousPm == null || displayPm === previousPm) return "steady";
+    return displayPm > previousPm ? "rising" : "falling";
+  }, [displayPm, previousPm]);
 
-  const displayPsi = data?.haze?.psi24h ?? 56;
-  const displayPm = data?.haze?.pm25_1h ?? 21;
-  const unhealthy = displayPsi > 100;
+  const chartValues = useMemo(() => {
+    const raw = history
+      .map((p) => trendMetric === "PSI" ? p.psi24h : p.pm25_1h)
+      .filter((x): x is number => typeof x === "number" && Number.isFinite(x));
+    if (!raw.length) return [];
+    const max = Math.max(...raw, 1);
+    return raw.map((v) => Math.max(8, Math.round((v / max) * 100)));
+  }, [history, trendMetric]);
+
+  const trendDelta = useMemo(() => {
+    if (history.length < 2) return null;
+    const first = trendMetric === "PSI" ? history[0].psi24h : history[0].pm25_1h;
+    const last = trendMetric === "PSI" ? history.at(-1)?.psi24h : history.at(-1)?.pm25_1h;
+    if (first == null || last == null || first === 0) return null;
+    return Math.round(((last - first) / first) * 100);
+  }, [history, trendMetric]);
+
+  const activities = useMemo(() => [
+    { title: "Walking", icon: Footprints, ...activityStatus(displayPsi, audience, "light") },
+    { title: "Running", icon: Activity, ...activityStatus(displayPsi, audience, "high") },
+    { title: "Cycling", icon: Bike, ...activityStatus(displayPsi, audience, "moderate") },
+    { title: "Outdoor sports", icon: Activity, ...activityStatus(displayPsi, audience, "high") },
+    { title: "Outdoor with kids", icon: Sparkles, ...activityStatus(displayPsi, audience === "General" ? "Children" : audience, "moderate") }
+  ], [displayPsi, audience]);
+
+  const currentRegionReading = data?.regions.find((r) => r.name === regionChoice);
 
   function Shell({ children, title, back = false }: { children: React.ReactNode; title?: string; back?: boolean }) {
     return (
       <div className="phoneShell">
         <div className="statusBar">
-          <span>9:41</span>
-          <span>▮▮ Wi‑Fi ▰</span>
+          <span>{new Date().toLocaleTimeString("en-SG", { hour: "numeric", minute: "2-digit" })}</span>
+          <span>Hazemate</span>
         </div>
         {title ? (
           <div className="screenHeader">
-            {back ? <button className="backBtn" onClick={() => setScreen("home")}><ChevronLeft size={20} /></button> : <span />}
+            {back ? <button className="backBtn" onClick={() => setScreen("home")} aria-label="Back"><ChevronLeft size={20} /></button> : <span />}
             <strong>{title}</strong>
-            <button className="iconBtn"><SlidersHorizontal size={18} /></button>
+            <button className="iconBtn" onClick={() => void loadRegion(regionChoice)} aria-label="Refresh data"><RefreshCw size={18} /></button>
           </div>
         ) : null}
         <div className="screenBody">{children}</div>
@@ -248,10 +418,7 @@ export default function Home() {
         <section className="splashScreen">
           <div className="skyCloud cloudOne" />
           <div className="skyCloud cloudTwo" />
-          <div className="splashBrand">
-            <h1>Hazemate</h1>
-            <p>Your mate for<br />clearer outdoor decisions</p>
-          </div>
+          <div className="splashBrand"><h1>Hazemate</h1><p>Your mate for<br />clearer outdoor decisions</p></div>
           <div className="sgSkyline">Singapore</div>
           <img src="/mascot.svg" alt="Hazemate mascot" className="splashMascot" />
           <span className="splashTagline">Cleaner Air<br />Brighter Days</span>
@@ -279,10 +446,10 @@ export default function Home() {
 
   if (screen === "onboarding2") {
     const benefits = [
-      ["loc","Live air quality","at your location"],
-      ["advice","Personalised advice","for your activities"],
-      ["mask","Mask guidance","when you need it"],
-      ["indoor","Indoor air insights","with compatible devices"]
+      ["Live air quality","at your location"],
+      ["Personalised advice","for your activities"],
+      ["Mask guidance","when you need it"],
+      ["Indoor air insights","with your own indoor reading"]
     ];
     return (
       <Shell>
@@ -290,8 +457,8 @@ export default function Home() {
           <div>
             <h1>Know.<br />Plan.<br />Breathe.</h1>
             <div className="benefitList">
-              {benefits.map(([key,title,sub], i) => (
-                <div className="benefitRow" key={key}>
+              {benefits.map(([title,sub], i) => (
+                <div className="benefitRow" key={title}>
                   <div className={`benefitIcon benefit${i}`}>{i === 0 ? <MapPin size={20}/> : i === 1 ? <Sparkles size={20}/> : i === 2 ? <ShieldCheck size={20}/> : <HomeIcon size={20}/>}</div>
                   <div><strong>{title}</strong><span>{sub}</span></div>
                 </div>
@@ -315,17 +482,17 @@ export default function Home() {
             <div className="pinOrb"><MapPin size={34}/></div>
           </div>
           <h1>Use your location</h1>
-          <p>Allow Hazemate to find your nearest region and show you the most relevant air quality and advice.</p>
+          <p>Hazemate uses your location only to choose the most relevant NEA region and nearby weather station.</p>
           <div className="locationBenefits">
-            <span><LocateFixed size={17}/> Show local air quality (near you)</span>
+            <span><LocateFixed size={17}/> Show local air-quality context</span>
             <span><ShieldCheck size={17}/> Personalise recommendations</span>
-            <span><Sparkles size={17}/> Help you plan your activities</span>
+            <span><Sparkles size={17}/> Help plan outdoor activities</span>
           </div>
           {error ? <div className="miniAlert">{error}</div> : null}
           <button className="primaryBtn" onClick={useLocation} disabled={locating}>{locating ? "Finding you…" : "Allow Location Access"}</button>
-          <button className="textBtn" onClick={() => setScreen("home")}>Choose manually</button>
-          <select className="regionSelect" value={regionChoice} onChange={(e) => chooseRegion(e.target.value)} aria-label="Choose region">
-            {Object.keys(REGION_COORDS).map((r) => <option key={r} value={r}>{fmtRegion(r)} Singapore</option>)}
+          <button className="textBtn" onClick={() => setScreen("home")}>Continue with current region</button>
+          <select className="regionSelect" value={regionChoice} onChange={(e) => chooseRegion(e.target.value as RegionName)} aria-label="Choose region">
+            {Object.keys(REGION_COORDS).map((r) => <option key={r} value={r}>{REGION_LABELS[r as RegionName]} Singapore</option>)}
           </select>
         </section>
       </Shell>
@@ -339,35 +506,38 @@ export default function Home() {
           <header className="homeTop">
             <div>
               <div className="wordmark">Haze<span>mate</span></div>
-              <p>{unhealthy ? "Good evening," : "Good morning,"}<br/><strong>Jamie!</strong></p>
+              <p>Singapore<br/><strong>{REGION_LABELS[regionChoice]} Region</strong></p>
             </div>
             <div className="homeMascotWrap"><img src="/mascot.svg" alt="Hazemate mascot" /></div>
-            <Bell size={20} className="bell" />
+            <button className="bellButton" onClick={() => setScreen("alerts")} aria-label="Open alerts"><Bell size={20} /></button>
           </header>
 
           <div className="locationChip">
             <MapPin size={18}/>
-            <div><strong>{regionChoice === "west" ? "Jurong" : "Queenstown"}</strong><span>({fmtRegion(data?.region ?? regionChoice)} Region)</span><small>Updated {data?.haze?.updatedAt ? new Date(data.haze.updatedAt).toLocaleTimeString("en-SG",{hour:"numeric",minute:"2-digit"}) : "9:30 AM"}</small></div>
+            <div>
+              <strong>{REGION_LABELS[regionChoice]} Singapore</strong>
+              <span>{data?.source ?? "NEA / data.gov.sg"}</span>
+              <small>Updated {formatTime(data?.haze.updatedAt)}</small>
+            </div>
+            <button className="chipRefresh" onClick={() => void loadRegion(regionChoice)} aria-label="Refresh current readings"><RefreshCw size={16}/></button>
           </div>
 
+          {error ? <div className="miniAlert">{error}</div> : null}
           {loading ? <div className="miniAlert">Refreshing environmental readings…</div> : null}
 
           <div className={`airHeroCard ${tone}`}>
-            <div>
-              <span>PSI (24-hr)</span>
-              <strong>{displayPsi}</strong>
-              <em>{label}</em>
-            </div>
-            <div>
-              <span>PM2.5 (1-hr)</span>
-              <strong>{displayPm}<small> µg/m³</small></strong>
-              <em>{displayPm >= 35 ? "Elevated" : "Normal"}</em>
-            </div>
+            <div><span>PSI (24-hr)</span><strong>{displayPsi ?? "—"}</strong><em>{label}</em></div>
+            <div><span>PM2.5 (1-hr)</span><strong>{displayPm ?? "—"}<small> µg/m³</small></strong><em>{displayPm == null ? "—" : displayPm >= 35 ? "Elevated" : "Normal"}</em></div>
+          </div>
+
+          <div className="weatherStrip">
+            <div><ThermometerSun size={18}/><span>Temperature</span><strong>{temperature ?? "—"}°C</strong></div>
+            <div><Droplets size={18}/><span>Humidity</span><strong>{humidity ?? "—"}%</strong></div>
           </div>
 
           <div className={unhealthy ? "trendCard warning" : "trendCard"}>
             <div className="trendIcon">{unhealthy ? "!" : pmTrend === "rising" ? <TrendingUp size={20}/> : <TrendingDown size={20}/>}</div>
-            <div><strong>{unhealthy ? "Air quality is unhealthy today." : "Trending lower"}</strong><span>{guidance(displayPsi, displayPm)}</span></div>
+            <div><strong>{unhealthy ? "Air quality is unhealthy." : pmTrend === "falling" ? "PM2.5 is improving" : pmTrend === "rising" ? "PM2.5 is rising" : "Current outdoor guidance"}</strong><span>{guidance(displayPsi, displayPm, audience)}</span></div>
           </div>
 
           <h3>Quick Actions</h3>
@@ -375,7 +545,7 @@ export default function Home() {
             <button onClick={() => setScreen("activity")}><Footprints size={20}/><span>Walk</span></button>
             <button onClick={() => setScreen("activity")} className={unhealthy ? "warnAction" : ""}><Activity size={20}/><span>Run</span></button>
             <button onClick={() => setScreen("activity")}><Bike size={20}/><span>Cycle</span></button>
-            <button onClick={() => setScreen("activity")}><Sparkles size={20}/><span>Outdoors</span></button>
+            <button onClick={() => setScreen("map")}><MapPin size={20}/><span>Regions</span></button>
             <button onClick={() => setScreen("alerts")}><Menu size={20}/><span>More</span></button>
           </div>
 
@@ -391,19 +561,24 @@ export default function Home() {
   if (screen === "map") {
     return (
       <Shell title="Air Quality Map" back>
-        <div className="segmented"><button className="selected">PSI</button><button>PM2.5</button></div>
+        <div className="segmented"><button onClick={() => setMapMetric("PSI")} className={mapMetric === "PSI" ? "selected" : ""}>PSI</button><button onClick={() => setMapMetric("PM2.5")} className={mapMetric === "PM2.5" ? "selected" : ""}>PM2.5</button></div>
         <div className="mapCanvas">
           <div className="mapGrid" />
-          {REGION_PSI.map((r, i) => (
-            <div key={r.name} className={`regionBubble region${i} ${r.tone}`}>
-              <span>{r.name}</span><strong>{r.value}</strong><small>{r.tone === "good" ? "Good" : r.tone === "unhealthy" ? "Unhealthy" : "Moderate"}</small>
-            </div>
-          ))}
+          {(data?.regions ?? []).map((r) => {
+            const value = mapMetric === "PSI" ? r.psi24h : r.pm25_1h;
+            const [, rTone] = psiLabel(r.psi24h);
+            return (
+              <button key={r.name} className={`regionBubble ${REGION_POSITIONS[r.name]} ${rTone} ${regionChoice === r.name ? "current" : ""}`} onClick={() => void loadRegion(r.name)}>
+                <span>{REGION_LABELS[r.name]}</span><strong>{value ?? "—"}</strong><small>{mapMetric === "PSI" ? psiLabel(r.psi24h)[0] : "µg/m³"}</small>
+              </button>
+            );
+          })}
           <div className="youDot"><span/></div>
         </div>
         <div className="legend">
           {["Good 0–50","Moderate 51–100","Unhealthy 101–200","Very Unhealthy 201–300","Hazardous >300"].map((x,i)=><span key={x}><i className={`legendDot d${i}`}/>{x}</span>)}
         </div>
+        <div className="mapFooter">Tap a region to make it your current Hazemate region.</div>
       </Shell>
     );
   }
@@ -412,14 +587,15 @@ export default function Home() {
     return (
       <Shell title="Activity Advisor" back>
         <div className="pillTabs">
-          {["General","Children","Elderly","Sensitive"].map((x)=><button key={x} onClick={()=>setSegment(x)} className={segment===x?"selected":""}>{x}</button>)}
+          {(["General","Children","Elderly","Sensitive"] as Audience[]).map((x)=><button key={x} onClick={()=>setAudience(x)} className={audience===x?"selected":""}>{x}</button>)}
         </div>
+        <div className="contextCard"><strong>{REGION_LABELS[regionChoice]} · PSI {displayPsi ?? "—"}</strong><span>{guidance(displayPsi, displayPm, audience)}</span></div>
         <div className="activityList">
-          {activities.map(({title,subtitle,status,icon:Icon,tone})=>(
+          {activities.map(({title,subtitle,label:status,tone:activityTone,icon:Icon})=>(
             <div className="activityRow" key={title}>
-              <div className={`roundIcon ${tone}`}><Icon size={21}/></div>
+              <div className={`roundIcon ${activityTone}`}><Icon size={21}/></div>
               <div className="grow"><strong>{title}</strong><span>{subtitle}</span></div>
-              <em className={`statusPill ${tone}`}>{status}</em>
+              <em className={`statusPill ${activityTone}`}>{status}</em>
             </div>
           ))}
         </div>
@@ -431,62 +607,68 @@ export default function Home() {
     return (
       <Shell title="Mask Guidance" back>
         <section className="maskScreen">
-          <img src="/mascot.svg" alt="Hazemate mascot wearing protective guidance theme" className="maskMascot"/>
+          <img src="/mascot.svg" alt="Hazemate mascot" className="maskMascot"/>
           <h2>Do I need a mask today?</h2>
+          <div className="pillTabs audienceTabs">
+            {(["General","Children","Elderly","Sensitive"] as Audience[]).map((x)=><button key={x} onClick={()=>setAudience(x)} className={audience===x?"selected":""}>{x}</button>)}
+          </div>
           <div className="maskDecision">
             <div className="decisionIcon"><ShieldCheck size={22}/></div>
-            <div><strong>{maskGuidance(displayPsi)}</strong><span>PSI {displayPsi} · {label}</span><p>For short outdoor activities, reducing exposure is usually more important than wearing a mask.</p></div>
+            <div><strong>{maskGuidance(displayPsi, audience)}</strong><span>PSI {displayPsi ?? "—"} · {label}</span><p>Hazemate uses official air-quality context to support decisions. During severe haze, follow current NEA/MOH advisories.</p></div>
           </div>
-          <h3>When a mask may help</h3>
-          <ul className="maskList">
-            <li>Air quality is Very Unhealthy or worse</li>
-            <li>Prolonged outdoor exposure (several hours)</li>
-            <li>Vulnerable individuals with medical guidance</li>
-          </ul>
         </section>
       </Shell>
     );
   }
 
   if (screen === "trends") {
-    const bars=[30,42,54,48,60,51,44,38,35,43,39,46,41,50,45,48,44,52,49,55,47,43,46,40];
+    const current = trendMetric === "PSI" ? displayPsi : displayPm;
     return (
       <Shell title="Trends" back>
         <div className="pillTabs">
-          {["PSI","PM2.5","Temperature","Humidity"].map((x)=><button key={x} onClick={()=>setMetric(x)} className={metric===x?"selected":""}>{x}</button>)}
+          {(["PSI","PM2.5"] as TrendMetric[]).map((x)=><button key={x} onClick={()=>setTrendMetric(x)} className={trendMetric===x?"selected":""}>{x}</button>)}
         </div>
         <div className="trendPanel">
-          <span>{metric} (24-hour)</span>
-          <div className="bigNumber">{displayPsi}<em>↓ 20%</em></div>
-          <small className="statusPill moderate">{label}</small>
-          <div className="miniChart" aria-label="24-hour air quality trend">
-            {bars.map((h,i)=><i key={i} style={{height:`${h}%`}} />)}
-          </div>
-          <div className="chartAxis"><span>12am</span><span>6am</span><span>12pm</span><span>6pm</span><span>12am</span></div>
+          <span>{trendMetric} · {REGION_LABELS[regionChoice]}</span>
+          <div className="bigNumber">{current ?? "—"}{trendDelta != null ? <em className={trendDelta > 0 ? "deltaUp" : ""}>{trendDelta > 0 ? "↑" : "↓"} {Math.abs(trendDelta)}%</em> : null}</div>
+          <small className={`statusPill ${tone}`}>{label}</small>
+          {historyLoading ? <div className="miniAlert">Loading stored readings…</div> : null}
+          {chartValues.length ? (
+            <>
+              <div className="miniChart" aria-label="Historical air quality trend">{chartValues.map((h,i)=><i key={i} style={{height:`${h}%`}} />)}</div>
+              <div className="chartAxis"><span>Older</span><span>{history.length} stored readings</span><span>Now</span></div>
+            </>
+          ) : <div className="emptyChart">Hazemate is collecting readings. Trend history will fill in over time.</div>}
         </div>
-        <div className="periodTabs">{["Today","7 Days","30 Days"].map((x)=><button key={x} onClick={()=>setPeriod(x)} className={period===x?"selected":""}>{x}</button>)}</div>
-        <div className="forecastCard"><TrendingDown size={19}/><div><strong>Forecast (Next 24 hours)</strong><span>Air quality is expected to improve tomorrow.</span></div></div>
+        <div className="periodTabs">{(["Today","7 Days","30 Days"] as const).map((x)=><button key={x} onClick={()=>setPeriod(x)} className={period===x?"selected":""}>{x}</button>)}</div>
+        <div className="forecastCard"><CloudSun size={19}/><div><strong>Data freshness</strong><span>Latest reading: {formatDateTime(data?.observedAt)}</span></div></div>
       </Shell>
     );
   }
 
   if (screen === "indoor") {
+    const outdoor = displayPm;
+    const difference = indoorSaved != null && outdoor != null ? Math.round((indoorSaved - outdoor) * 10) / 10 : null;
     return (
       <Shell title="Indoor Air" back>
         <section className="indoorScreen">
-          <div className="roomIllustration">
-            <HomeIcon size={74}/>
-            <div className="purifier">●</div>
+          <div className="roomIllustration"><HomeIcon size={74}/><div className="purifier">●</div></div>
+          <h2>Compare indoor and outdoor air</h2>
+          <p className="indoorIntro">Enter a PM2.5 reading from your purifier or indoor air-quality monitor.</p>
+          <div className="indoorInputRow">
+            <input type="number" min="0" inputMode="decimal" placeholder="Indoor PM2.5" value={indoorPm25} onChange={(e)=>setIndoorPm25(e.target.value === "" ? "" : Number(e.target.value))}/>
+            <button onClick={saveIndoorReading}>Save</button>
           </div>
-          <h2>Connect your air purifier<br/>or air quality device</h2>
+          <div className="comparisonGrid">
+            <div><span>Outdoor</span><strong>{outdoor ?? "—"}</strong><small>µg/m³</small></div>
+            <div><span>Indoor</span><strong>{indoorSaved ?? "—"}</strong><small>µg/m³</small></div>
+          </div>
+          {difference != null ? <div className="contextCard"><strong>{difference <= 0 ? "Indoor air is cleaner" : "Indoor air is more polluted"}</strong><span>{Math.abs(difference)} µg/m³ difference compared with outside.</span></div> : null}
           <div className="indoorBenefits">
-            <span>Track indoor PM2.5 and air quality</span>
-            <span>Compare indoor vs outdoor</span>
-            <span>Get smarter recommendations</span>
-            <span>Supports popular brands</span>
+            <span>Reading is stored only on this device</span>
+            <span>Use your monitor's PM2.5 value</span>
+            <span>Future device integrations can automate this</span>
           </div>
-          <button className="primaryBtn">Add a Device</button>
-          <button className="textBtn">Learn more</button>
         </section>
       </Shell>
     );
@@ -494,20 +676,14 @@ export default function Home() {
 
   return (
     <Shell title="Alerts" back>
-      <div className="segmented alertTabs"><button className="selected">Notifications</button><button>Preferred Region</button></div>
+      <div className="alertsSettings">
+        <div className="settingRow"><div><strong>PSI alert threshold</strong><span>Notify when your selected region reaches this level.</span></div><input type="number" min="51" max="500" value={alertPsi} onChange={(e)=>{const v=Number(e.target.value);setAlertPsi(v);localStorage.setItem("hazemate-alert-psi",String(v));}}/></div>
+        <div className="settingRow"><div><strong>In-app alerts</strong><span>Current region: {REGION_LABELS[regionChoice]}</span></div><label className="switch"><input type="checkbox" checked={alertsEnabled} onChange={(e)=>{setAlertsEnabled(e.target.checked);localStorage.setItem("hazemate-alerts-enabled",e.target.checked?"1":"0");}}/><span/></label></div>
+        <button className="primaryBtn" onClick={requestNotifications}>{notificationPermission === "granted" ? "Browser notifications enabled" : notificationPermission === "unsupported" ? "Notifications not supported" : "Enable browser notifications"}</button>
+      </div>
       <div className="alertsList">
-        {[
-          ["red","Air quality has turned unhealthy in West Region","PSI 112 · 6:15 PM"],
-          ["amber","PM2.5 rising","PM2.5 increased by 40% in the last 3 hours."],
-          ["green","Conditions improving","PSI expected to drop to Moderate tomorrow."],
-          ["blue","Haze advisory issued","Regional haze conditions may persist for the next few days."]
-        ].map(([tone,title,sub])=>(
-          <div className="alertRow" key={title}>
-            <div className={`alertDot ${tone}`}>!</div>
-            <div><strong>{title}</strong><span>{sub}</span></div>
-            <span>›</span>
-          </div>
-        ))}
+        <div className="alertRow"><div className={`alertDot ${unhealthy ? "red" : "green"}`}>!</div><div><strong>{unhealthy ? "Current air quality is unhealthy" : "Current air quality update"}</strong><span>{REGION_LABELS[regionChoice]} Region · PSI {displayPsi ?? "—"}</span></div><span>›</span></div>
+        {displayPm != null ? <div className="alertRow"><div className={`alertDot ${pmTrend === "rising" ? "amber" : "blue"}`}>!</div><div><strong>PM2.5 {pmTrend === "rising" ? "is rising" : pmTrend === "falling" ? "is improving" : "current reading"}</strong><span>{displayPm} µg/m³ · updated {formatTime(data?.haze.updatedAt)}</span></div><span>›</span></div> : null}
       </div>
     </Shell>
   );
