@@ -52,11 +52,11 @@ test.describe("Hazemate responsive PWA", () => {
   test("primary guidance navigation works", async ({ page }) => {
     await page.goto("/");
 
-    await page.getByRole("button", { name: "Advice" }).click();
+    await page.locator('nav[aria-label="Primary"]:visible').getByRole("button", { name: "Advice" }).click();
     await expect(page.getByRole("heading", { name: /Do I need a mask today/i })).toBeVisible();
     await expect(page.getByText(/Exposure reduction comes first/i)).toBeVisible();
 
-    await page.getByRole("button", { name: "Activity" }).click();
+    await page.locator('nav[aria-label="Primary"]:visible').getByRole("button", { name: "Activity" }).click();
     await expect(page.getByText("Walking")).toBeVisible();
     await expect(page.getByText("Running")).toBeVisible();
     await expect(page.getByText(/Recommendations use the more cautious result/i)).toBeVisible();
@@ -64,7 +64,7 @@ test.describe("Hazemate responsive PWA", () => {
 
   test("regional comparison is clearly schematic and supports PSI and PM2.5", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "Regions" }).click();
+    await page.locator('nav[aria-label="Primary"]:visible').getByRole("button", { name: "Regions" }).click();
     await expect(page.getByText("Regional Air Quality")).toBeVisible();
     await expect(page.getByText(/Schematic five-region view/i)).toBeVisible();
     await page.getByRole("button", { name: "PM2.5", exact: true }).click();
@@ -112,7 +112,7 @@ test.describe("Hazemate responsive PWA", () => {
 
     await page.goto("/");
     await expect(page.getByText("Limited data")).toBeVisible();
-    await expect(page.getByText("28", { exact: true })).toBeVisible();
+    await expect(page.locator(".airHeroCard strong").nth(1)).toContainText("28");
     await expect(page.getByText(/Limited-data recommendation/i)).toBeVisible();
   });
 
@@ -161,7 +161,7 @@ test.describe("Hazemate responsive PWA", () => {
 
   test("alerts explain active-session scope", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: "More" }).click();
+    await page.locator('nav[aria-label="Primary"]:visible').getByRole("button", { name: "More" }).click();
     await expect(page.getByText(/Background Web Push is not enabled/i)).toBeVisible();
     await expect(page.getByText("Privacy & data")).toBeVisible();
   });
