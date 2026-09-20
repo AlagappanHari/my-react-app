@@ -53,7 +53,7 @@ function psiDecision(psi: number | null, audience: Audience, intensity: Intensit
   const vulnerable = audience !== "General";
 
   if (psi > 300) return "Avoid";
-  if (psi > 200) return vulnerable || intensity !== "light" ? "Avoid" : "Limit";
+  if (psi > 200) return vulnerable || intensity === "high" ? "Avoid" : "Limit";
   if (psi > 100) {
     if (audience === "Sensitive") return intensity === "light" ? "Limit" : "Avoid";
     if (vulnerable) return intensity === "high" ? "Avoid" : "Limit";
