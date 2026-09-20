@@ -1,12 +1,13 @@
 {
-  "name": "Hazemate",
+  "name": "Hazemate — Singapore Air Quality Companion",
   "short_name": "Hazemate",
-  "description": "Singapore haze, temperature and humidity companion.",
+  "description": "Singapore PSI, PM2.5, weather and practical outdoor activity guidance.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#f7fbff",
   "theme_color": "#eaf6ff",
-  "orientation": "portrait-primary",
+  "categories": ["weather", "health", "lifestyle"],
   "icons": [
     {
       "src": "/mascot.svg",

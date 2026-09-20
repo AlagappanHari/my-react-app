@@ -4,6 +4,7 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     service: "hazemate",
+    version: "frd-v2",
     timestamp: new Date().toISOString()
   });
 }
