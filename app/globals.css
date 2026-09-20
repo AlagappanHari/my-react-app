@@ -166,3 +166,62 @@ body{display:block;padding:0}
   .quickActions{grid-template-columns:repeat(3,1fr)}
   .moreCards{grid-template-columns:1fr 1fr}
 }
+
+
+/* FRD v2 alignment */
+:focus-visible{outline:3px solid #0b73c8;outline-offset:3px}
+button,select,input{font:inherit}
+button{min-height:44px}
+.headerIconButton,.chipRefresh,.bellButton,.backBtn{min-width:44px;min-height:44px}
+.appFootnote{max-width:1180px;margin:0 auto;padding:0 clamp(14px,3vw,34px) 88px;display:flex;flex-wrap:wrap;gap:6px 16px;color:#60788d;font-size:11px;line-height:1.45}
+.accessibleStatus{background:#fff;border-color:var(--line);color:var(--text)}
+.accessibleStatus em.good{background:#e0f7e8;color:#127944}
+.accessibleStatus em.moderate{background:#fff1c7;color:#785c00}
+.accessibleStatus em.unhealthy{background:#ffe0da;color:#a93627}
+.accessibleStatus em.neutral{background:#edf2f5;color:#536777}
+.dataState{display:flex;gap:10px;align-items:flex-start;margin:10px 0;padding:10px 12px;border-radius:13px;border:1px solid var(--line);font-size:12px}
+.dataState strong,.dataState span{display:block}.dataState span{color:#5f7588}
+.dataState.stale{background:#fff6e5;border-color:#f0d7a2}.dataState.partial{background:#eef7ff;border-color:#cfe6f7}
+.warningNotice{background:#fff6e5;color:#7a5a10;border:1px solid #f0d7a2}
+.decisionCard{grid-column:1;margin-top:10px;border-radius:18px;padding:16px;border:1px solid var(--line);background:#fff}
+.decisionCard.good{background:#eefaf2;border-color:#c9ecd5}
+.decisionCard.moderate{background:#fff8e7;border-color:#f2dfaf}
+.decisionCard.unhealthy{background:#fff0ed;border-color:#f3ccc4}
+.decisionCard.neutral{background:#f4f7f9;border-color:#dde5ea}
+.decisionTopline{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.decisionState{font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.05em}
+.confidencePill{font-size:10px;padding:4px 8px;border-radius:999px;background:rgba(255,255,255,.75);border:1px solid rgba(40,85,115,.14)}
+.decisionCard h2{font-size:22px;line-height:1.15;margin:7px 0;color:var(--navy)}
+.decisionCard p{font-size:14px;line-height:1.5;margin:0;color:#365e7d}
+.decisionCard small{display:block;margin-top:8px;color:#657f93;line-height:1.45}
+.audienceInline{grid-column:1;display:flex;align-items:center;gap:10px;margin-top:10px}
+.audienceInline>span{font-size:11px;font-weight:800;color:#60788d;white-space:nowrap}
+.compactPills{flex:1;margin:0}
+.activityRow .grow small{display:block;margin-top:5px;font-size:9.5px;line-height:1.35;color:#7a8d9d}
+.healthNote{margin-top:14px;display:flex;align-items:flex-start;gap:9px;border:1px solid #dbeaf4;background:#f6fbfe;border-radius:14px;padding:12px;color:#42647e}
+.healthNote svg{flex:0 0 auto;margin-top:1px}.healthNote p{margin:0;font-size:11px;line-height:1.5}
+.contentMeta{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:10px;font-size:9px;color:#71879a;justify-content:center}
+.inputLabel{display:block;text-align:left;font-size:11px;font-weight:800;color:#476981;margin-top:12px}
+.privacyCard{display:flex;gap:11px;align-items:flex-start;background:#fff;border:1px solid var(--line);border-radius:15px;padding:13px;margin-top:12px}
+.privacyCard>svg{flex:0 0 auto;color:#176fc5}.privacyCard strong{font-size:13px}.privacyCard p{font-size:11px;line-height:1.5;color:#60788d;margin:4px 0}.privacyCard small{font-size:9px;color:#7890a2}
+.statusPill.neutral,.roundIcon.neutral{background:#edf2f5;color:#536777}
+.roundIcon.moderate{background:#fff0d6;color:#a86c00}
+.statusPill.moderate{background:#fff2c7;color:#7d5f00}
+.statusPill.unhealthy{background:#ffe1dc;color:#a83b2f}
+.mapCanvas .regionBubble.good{background:#ddf6e8}
+.mapCanvas .regionBubble.moderate{background:#fff3bd}
+.mapCanvas .regionBubble.unhealthy{background:#ffd6cb}
+.mapCanvas .regionBubble.neutral{background:#eef3f6}
+.periodTabs{grid-auto-columns:minmax(90px,1fr)}
+@media (min-width:700px){
+  .appFootnote{padding-bottom:24px}
+  .homeTop,.locationChip,.airHeroCard,.weatherStrip,.decisionCard,.audienceInline{grid-column:1}
+}
+@media (max-width:699px){
+  .appFootnote{padding-bottom:92px}
+  .activityRow{align-items:flex-start}
+  .activityRow .statusPill{margin-top:2px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
+}
